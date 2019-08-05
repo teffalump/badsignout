@@ -1,6 +1,6 @@
 from enum import Enum
 
-__all__=["SEX"]
+__all__=["SEX", "ACTION"]
 
 class SEX(Enum):
     m = 'male'
@@ -8,3 +8,8 @@ class SEX(Enum):
     mtf = 'male-to-female'
     ftm = 'female-to-male'
     o = 'other'
+
+class ACTION(Enum):
+    f = 'follow-up'
+    o = 'order'
+    r = 'round on'

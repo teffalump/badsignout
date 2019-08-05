@@ -1,7 +1,7 @@
-from badsignout import Base, Patient, Encounter, Location, Provider, Team
+from badsignout import Base, Patient, Encounter, Location, Provider, Team, MedicalHistory, HereFor, Todo
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-from datetime import date
+from datetime import date, time
 import pytest
 import warnings
 
@@ -16,6 +16,31 @@ def delete_all():
     session.query(Location).delete()
     session.query(Team).delete()
     session.query(Provider).delete()
+    session.query(MedicalHistory).delete()
+    session.query(HereFor).delete()
+    session.query(Todo).delete()
+    session.commit()
+
+def oneliner():
+    f = "{age} y/o {sex} with PMHx {pmhx} here for {here}"
+    a = date.today().year - p.bday.year
+    history = [' '.join([mh.prefix, mh.condition, mh.suffix or '']).strip() for mh in p.history]
+    text = f.format(age=a, sex=p.sex.value, pmhx=', '.join(history), here=p.reasons[0].reason)
+    with open('oneliner.txt', 'w') as ol:
+        ol.write(text)
+
+def add_basic_patient():
+    pat = Patient(name='Charles Test', mrn='12345', sex='m', bday=date(1970, 1, 1))
+    loc = Location(location='D787-1')
+    enc = Encounter(admission=date(2019,7,26))
+    med1 = MedicalHistory(condition='Atrial fibrillation with RVR', short='AF w/ RVR', prefix="recently diagnosed", suffix="on anticoagulation")
+    med2 = MedicalHistory(condition='Hypertension', short='HTN', prefix="uncontrolled")
+    here = HereFor(reason="worsening palpitations")
+    enc.locations.append(loc)
+    pat.encounters.append(enc)
+    pat.reasons = [here]
+    pat.history = [med1, med2]
+    session.add_all([pat, loc, enc, med1, med2, here])
     session.commit()
 
 def test_add_patient():
@@ -83,5 +108,46 @@ def test_team():
         for x in p.providers:
             assert x.name in ['Stupid intern', 'Bad resident']
         assert p.team.name == 'Foolish Ones'
+
+    delete_all()
+
+def test_history_reason():
+    pat = Patient(name='Charles Test', mrn='12345', sex='m', bday=date(1970, 1, 1))
+    med1 = MedicalHistory(condition='Atrial fibrillation with RVR', short='AF w/ RVR', prefix="recently diagnosed", suffix="on anticoagulation")
+    med2 = MedicalHistory(condition='Hypertension', short='HTN', prefix="uncontrolled")
+    here = HereFor(reason="worsening palpitations")
+    pat.history = [med1, med2]
+    pat.reasons = [here]
+    session.add_all([pat, med1, med2, here])
+    session.commit()
+
+    for p in session.query(Patient):
+        for m in p.history:
+            assert m.condition in ['Atrial fibrillation with RVR', 'Hypertension']
+        for r in p.reasons:
+            assert r.reason == 'worsening palpitations'
+
+    delete_all()
+
+def test_todo():
+    add_basic_patient()
+
+    pat = session.query(Patient)[0]
+    todo1 = Todo(action='f', target='BMP', when=time(20, 30), guidance="Please replete K if <3")
+    todo2 = Todo(freetext="The RN stated that patient wants to see MD in evening. If possible, please check in with patient")
+    pat.todos = [todo1, todo2]
+    session.add_all([pat, todo1, todo2])
+    session.commit()
+
+    for p in session.query(Patient):
+        for t in p.todos:
+            assert t.patient == pat
+            if t.freetext:
+                assert t.when is None
+            else:
+                assert t.action.value == 'follow-up'
+                assert t.target == 'BMP'
+                assert t.when == time(20,30)
+                assert t.guidance == 'Please replete K if <3'
 
     delete_all()
